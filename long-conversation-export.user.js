@@ -42,102 +42,7 @@
     // 基础参数
     // =========================================================
 
-    // 11.1.2（2026-09-10 主人追问"其他 AI 站点要重新来一遍？"）：
-    //   把 11.1.1 在豆包上验证过的「data-message-id + roleRules +
-    //   scrollerSelector + virtualList」四件套**全量推到所有站点**。
-    //   主人 9/10 反馈：「你这网页版的程序还是通用吗？其他 ai 对话
-    //   界面都要重新来一遍？」——答案是**不用**，一次性把站点层都改对。
-    //   具体改动（每个站点都说一下"在做什么、为什么这么写"）：
-    //     chatgpt   —— 已有 [data-message-author-role]，加 roleRules 双保险
-    //     claude    —— 把危险的 `div[class*="message"]` 兜底删掉
-    //                 （会命中 padding/avatar 容器），只留 data-testid
-    //     grok      —— 同 claude，去掉散落 fallback
-    //     gemini    —— 自定义元素（user-query / model-response）天然带角色
-    //     deepseek  —— 已有 [data-message-id]，补 roleRules + 锁虚拟列表
-    //     kimi      —— 加 [data-message-id] 优先 + roleRules + 锁滚动容器
-    //     qwen      —— 同上，tongyi.aliyun.com / chat.qwen.ai 都改
-    //     yuanbao   —— 同上
-    //     chatglm   —— 同上
-    //     doubao    —— 不动（11.1.1 已修）
-    //     generic   —— 兜底：直接走 [data-message-id]，判不到再回退
-    //   **重要**：这是「没真页面就按代码风格猜的」——每个站点都
-    //   在配置上方留了「best-guess，需实测」的注释。主人打开对应
-    //   站点对话页，发现角色判错或漏抓，告诉我具体哪个，我按实测
-    //   selector 改一行就行，不动其它站点。向后兼容：roleRules /
-    //   scrollerSelector / virtualList 不填 = 老逻辑，11.0 之前所有
-    //   行为不变。
-    //
-    // 11.1.0（2026-09-10 主人要求）：
-    //   1) 新增「■ 仅停止（不导出）」——单纯中止扫描，**不进导出流程**，
-    //      已抓内容直接丢弃。原来只有一个「停止并导出」，主人要的是"纯停止"。
-    //   2) 两个停止按钮改为**常显**（原先只在扫描中才显示，主人反馈"看不到"）：
-    //      空闲时置灰不可点，扫描中可点。CSS 去掉 display:none，由 setBusy 控 disabled。
-    //   3) 配套：`stopOnly` 标志位；`window.__lcxStopOnly()`；`window.__lcxStop(export?)`。
-    //   本次新增只做加法：原「停止并导出」路径一字未改，仍走 throwIfAborted 原逻辑。
-    //
-    // 11.1.1：
-    //   1) 修豆包（doubao.com）导出**只有「用户」没有「豆包」**：
-    //      原来用 `div[class*="message"]` 定位消息，会命中整条列表容器、
-    //      时间戳动作栏、以及类名里只是带了 padding 变量
-    //      （conversation-message-content-padding-right）的空壳 div，
-    //      共 39 个节点；角色又全靠通用启发式，结果全部误判成 user。
-    //      改为 `[data-message-id]`（豆包每条消息都带，且可当稳定 ID），
-    //      并新增站点级 roleRules，按类名判定：
-    //         用户消息 → 右对齐（justify-end）
-    //         豆包消息 → grid 栅格（grid-cols-[minmax(0,1fr)_auto]）
-    //   2) 豆包是真·虚拟列表（实测：底部 8 条 / 顶部 6 条 / 回底部只剩 4 条），
-    //      新增站点级 scrollerSelector，显式锁定消息滚动容器
-    //      `[class*="v_list_scroller"]`，避免通用探测随窗口尺寸选错。
-    //   3) 导出头部新增 `> 对话来源：<AI 名> · <host>`，单看文件也知道
-    //      这是和谁聊的（主人反馈"抬头里也没注明是和豆包的对话"）。
-    //      「Assistant 消息」改为「助手消息（豆包）」这种带名字的写法。
-    //   4) 本次**只动豆包**。Kimi / 通义 / 元宝 / 智谱清言 / DeepSeek
-    //      同样在用 `div[class*="message"]` 这类通配选择器，很可能有
-    //      同样的毛病，但没有真实页面可验，**不做无把握的改动**；
-    //      等主人打开对应站点标签页时逐个实测再改。
-    //   5) 新增能力（站点配置可选项，向后兼容，老站点不填即行为不变）：
-    //        roleRules        [{re, role}] 按类名/属性正则判角色
-    //        scrollerSelector 直接指定滚动容器的 CSS 选择器
-    //        virtualList      true = 走慢扫（步长 0.45 视口 + 每屏多等 450ms）
-    //      豆包三者都开了。实测同一段 12 条对话，0.7 步长出现过只抓到
-    //      10 条（缺 2 条 + 1 处连续同角色异常），慢扫已验证抓满 12 条。
-    //
-    // 11.0.2：
-    //   1) 扫描中可随时「停止扫描」——保留已抓到的部分并直接导出
-    //   2) 新增「从当前位置开始向下扫描」——不必回到真正顶部，
-    //      页面上半截是别的内容（新闻简报等）时可以跳过
-    //   3) 修 11.0.0 起点往上漂好几屏：起点前不再展开折叠（展开会让
-    //      上方变高、绝对坐标下移，同一个 scrollTop 看到的内容就往回跑）；
-    //      锚点用 160 字符匹配；导出前再按锚点裁掉起点以上的消息做最后保险
-    //   4) 起点默认**以屏幕为准**（视口顶部第一条消息），
-    //      鼠标点击造成的光标位置一律不算 —— 主人是滚轮滚屏的，
-    //      光标常常不在起点上。只有真的拖选了文字才用选区那条
-    // 11.1.3（2026-09-10 主人实测 grok 翻车："对话里的搜索"被抓进来）：
-    //   **真正的"通用"**：不再依赖每个站点的 selector 选消息。
-    //   改成「**结构化收集 + 排除列表**」——找最像消息容器的 div，
-    //   把它的直接子节点当消息；任何带 search/tool/function/artifact
-    //   等噪声模式的元素直接跳过。这样 grok 的"对话内搜索"（搜索结果
-    //   div 和真实消息 div 同级）就被**结构性排除**，不需要知道 grok
-    //   的具体 class。
-    //   具体改动：
-    //     ① 站点级 msgSelectors 改为**可选**——不填就用通用结构化收集
-    //     ② 新增 NOISE_PATTERNS：12 个英文 + 4 个中文关键词
-    //     ③ 新增 isInNoiseContext(el)：沿 DOM 向上 6 层检查祖先元素
-    //        的 class/id/aria-label/data-* 是否含噪声词
-    //     ④ 新增 findConversationContainer(scroller)：找最深、且直接
-    //        子节点 ≥ 3 的 div，那就是消息容器
-    //     ⑤ collectNodes 改造：SITE.msgSelectors 命中 → 噪声过滤 →
-    //        找不到再走结构化 → 再找不到走原 genericTurns
-    //     ⑥ 新增 __lcxDebug()：在控制台打"抓到了几个 / 几个被噪声过滤"
-    //     ⑦ ChatGPT / Doubao / Gemini 仍走专用 selector（11.1.1/11.1.2
-    //        已验，行为不变）
-    //   **关键承诺**：这次没有 best-guess，要么**结构上**就对，要么
-    //   主人用 __lcxDebug 看到底抓了什么、我能直接定位是 selector 问题
-    //   还是容器问题。
-    //
-    // 11.1.2（2026-09-10 主人追问"其他 AI 站点要重新来一遍？"）：
-
-    const VERSION = '11.2.3';
+    const VERSION = '11.2.5';
 
     const WAIT = 350;
 
@@ -208,13 +113,13 @@
                 'www.claude.ai',
                 'platform.claude.com'
             ],
-            // 11.1.7（主人 20:11 实测 + 我用 chrome-bridge 抓真实 DOM 验过）：
+            // 11.1.7（用户 20:11 实测 + 我用 chrome-bridge 抓真实 DOM 验过）：
             // ——`[data-testid="assistant-message"]` 这个 testid
             // 已经不存在了！实测命中数：user=6, assistant=0。整体对话 30 条
             // （aria-label="Message N of 30"），只用 `[role=article]` 全部命中。
             // 标题也从 `chat-title`（不存在）改成 `chat-title-split`
             // （2025 改版后的实际标题元素）。
-            // **杀验**：主人亲测「导出的只有几百 K」已根治 → 11.1.7 必抓 N 倍内容。
+            // **杀验**：用户亲测「导出的只有几百 K」已根治 → 11.1.7 必抓 N 倍内容。
             msgSelectors: [
                 '[role=article]',
                 '[data-testid="user-message"]'
@@ -232,7 +137,7 @@
                 'h1',
                 'nav a[href*="/chat/"]'
             ],
-            // 11.1.2（best-guess，需主人实测确认）：Claude 对话页是整页滚动
+            // 11.1.2（best-guess，需用户实测确认）：Claude 对话页是整页滚动
             // （不是右侧独立滚动条），scroller 走 generic 已经够。
             // 虚拟列表用得不多，先不开 virtualList；如实测有漏抓再加。
             scroller: 'generic'
@@ -243,7 +148,7 @@
             assistantName: 'Grok',
             // 11.1.6：补全 www 子域
             hosts: ['grok.com', 'www.grok.com'],
-            // 11.1.7（主人 20:11 实测 + 我用 chrome-bridge 抓真实 DOM 验过）：
+            // 11.1.7（用户 20:11 实测 + 我用 chrome-bridge 抓真实 DOM 验过）：
             // ——我 11.1.4 加的 forceTier2:true **是错决定**！
             // 实测 Grok 真实结构：
             //   - data-testid="user-message" × 6 条
@@ -253,10 +158,10 @@
             // Tier 1 selector 完全够用 + roleMap 正确判定
             // (user → user / assistant → assistant)。
             // **杀验**：删除 forceTier2 让 Tier 1 + roleMap 工作。
-            // 主人说的"一直出对话里的搜索"——可能实际是 Grok 把
+            // 用户说的"一直出对话里的搜索"——可能实际是 Grok 把
             // DeepSearch 摘要渲染成 `data-testid="assistant-message"`
             // 形式**（这是 Grok 设计行为不是 selector 问题）**。
-            // 如有需要进一步排查，让主人在该对话页调
+            // 如有需要进一步排查，让用户在该对话页调
             // `await window.__lcxDebug()` 看 assistant-message 是否包含
             // "工作了 Xs" 这种 DeepSearch 摘要。
             msgSelectors: [
@@ -276,7 +181,7 @@
             ],
             scroller: 'generic',
             // =====================================================
-            // 11.1.9（2026-09-10 主人实测"grok 还是不行" → chrome-bridge 抓真实 DOM）
+            // 11.1.9（2026-09-10 用户实测"grok 还是不行" → chrome-bridge 抓真实 DOM）
             //
             // Grok = **全量 DOM 渲染**站点（实测数据）：
             //   · 12 条消息（user/assistant 各 6）全部常驻 DOM
@@ -326,7 +231,7 @@
             id: 'deepseek',
             name: 'DeepSeek',
             assistantName: 'DeepSeek',
-            // 11.1.6：补全所有可能域名（主人 19:53 骂"系统漏域名"）
+            // 11.1.6：补全所有可能域名（用户 19:53 反馈"系统漏域名"）
             //   chat.deepseek.com    —— 网页对话主入口（官方）
             //   www.deepseek.com     —— 公司官网首页（"开始对话"按钮跳到 chat）
             hosts: [
@@ -334,8 +239,8 @@
                 'www.deepseek.com',
                 'deepseek.com'
             ],
-            // 11.1.7 原版主人亲测 DeepSeek 11.1.3 OK——但 11.1.8 实测**已经失效**！
-            // 主人 Chrome 当前开 DeepSeek 对话页实测：
+            // 11.1.7 原版用户亲测 DeepSeek 11.1.3 OK——但 11.1.8 实测**已经失效**！
+            // 用户 Chrome 当前开 DeepSeek 对话页实测：
             //   [data-message-id] → **0 条命中**！（前端又改版，hash id 格式变了）
             //   div.ds-message    → 4 条命中（class "d29f3d7d ds-message _63c77b1"）
             // 为何 11.1.3 当时还能抓 8 条？——Tier 1 失败后**Tier 2 兜底**（找最深 div 容器）
@@ -403,7 +308,7 @@
                 'doubao.com',
                 'www.doubao.com'
             ],
-            // 2026-09-10 实测（主人反馈"导出只有用户、没有豆包"）：
+            // 2026-09-10 实测（用户反馈"导出只有用户、没有豆包"）：
             // 豆包页面里每条消息都是一个 `div[data-message-id]`，
             // 共 8 个 = 4 问 4 答，干净、无嵌套，且 data-message-id
             // 可被 getStableId 直接当稳定 ID 用（虚拟列表复用 DOM 时的关键）。
@@ -445,7 +350,7 @@
             name: '通义千问',
             assistantName: '千问',
             // 11.1.5：qianwen.com 是 qwen 的另一个官方入口（qianwen.com/chat），
-            // 主人 19:48 反馈"网页上没有长对话导出那个箭头"——
+            // 用户 19:48 反馈"网页上没有长对话导出那个箭头"——
             // 之前 @match 没覆盖这个域名，油猴根本没注入脚本。
             //   tongyi.aliyun.com —— 国内入口
             //   chat.qwen.ai     —— 国际入口
@@ -457,7 +362,7 @@
                 'qianwen.com',
                 'www.qianwen.com'
             ],
-            // 11.1.7（主人 20:11 实测 + 我用 chrome-bridge 抓真实 DOM 验过）：
+            // 11.1.7（用户 20:11 实测 + 我用 chrome-bridge 抓真实 DOM 验过）：
             // ——`[data-message-id]` 在 qianwen.com/chat 上**只命中 2 个 video card**，
             // 完全不是真对话容器！真实结构：
             //   - `.chat-round` = 一整轮对话（用户问 + AI 答合一个 div）
@@ -470,7 +375,7 @@
             //     （取**第一个**匹配，即当前对话标题）
             // 之前 11.1.5 抓 19 个 markdown 段当 19 条消息，正是因为
             // `data-message-id` 没命中、落了 Tier 2 抓到 markdown 内层。
-            // 主人原话「下载的文件大小不对」正是这个根因。
+            // 用户原话「下载的文件大小不对」正是这个根因。
             msgSelectors: [
                 '.chat-round',
                 '[data-message-id]'
@@ -489,7 +394,7 @@
             titleSelectors: [
                 // 千问当前对话标题在 sidebar 里用 `text-title-attachment` 标记
                 // （11.1.7 错用了通用 text-ellipsis → 抓到 sidebar 历史对话标题）
-                // 11.1.8 chrome-bridge 主人 Chrome 实测：
+                // 11.1.8 chrome-bridge 用户 Chrome 实测：
                 //   - [class*="text-title-attachment"] 只匹配**当前激活**那一条
                 //   - 主区 H1 是通用"千问 - 阿里旗下全能AI助手"，不能用作对话标题
                 '[class*="text-title-attachment"]',
@@ -545,7 +450,7 @@
             id: 'xiaoyi',
             name: '华为小艺',
             assistantName: '小艺',
-            // 11.2.2（主人 2026-09-25 要求 + chrome-bridge 实测真实 DOM）：
+            // 11.2.2（用户 2026-09-25 要求 + chrome-bridge 实测真实 DOM）：
             //   xiaoyi.huawei.com/chat —— 华为小艺网页版对话。
             //   实测结构：消息列表 = .message-list > .message-list-wrapper，
             //   每条消息 = 叶子节点：用户 .send-msg，小艺 .receive-msg（含 .answer-item）。
@@ -2336,7 +2241,7 @@
 
     /**
      * 11.0.0：面板里显示当前滚动位置，
-     * 主人滚到哪儿，按钮就从哪儿开始扫，一眼能对上。
+     * 用户滚到哪儿，按钮就从哪儿开始扫，一眼能对上。
      */
     function topMessagePreview(scroller) {
 
@@ -2400,7 +2305,7 @@
         } catch (_) {}
 
         // 布局无关：用「距真实顶部的偏移」展示，column-reverse 的负
-        // scrollTop 归一化成正值，避免界面出现负数把主人搞糊涂。
+        // scrollTop 归一化成正值，避免界面出现负数把用户搞糊涂。
         const y =
             scroller
                 ? Math.round(
@@ -2639,11 +2544,11 @@
         }
 
         // =========================================================
-        // 11.1.9（2026-09-10 主人实测"grok 还是不行" → chrome-bridge 抓真实 DOM）
+        // 11.1.9（2026-09-10 用户实测"grok 还是不行" → chrome-bridge 抓真实 DOM）
         //
         // 全量 DOM 渲染站点（Grok）豁免「距视口过远」过滤。
         //
-        // 实测依据（chrome-bridge 在主人 Grok 对话页抓的真实数据）：
+        // 实测依据（chrome-bridge 在用户 Grok 对话页抓的真实数据）：
         //   · 12 条消息（user/assistant 各 6）**全部常驻 DOM**
         //     → scroller scrollHeight = 11510 ≈ 12 条消息高度合计 10701
         //   · 每条 disp=block / vis=visible / opacity=1 / isConnected=true
@@ -2816,7 +2721,7 @@
     // =========================================================
     // 11.1.3：噪声容器识别（关键修复：grok 的"对话里的搜索"）
     //
-    // 主人实测 grok 11.1.1/11.1.2 都把搜索结果当消息抓。
+    // 用户实测 grok 11.1.1/11.1.2 都把搜索结果当消息抓。
     // 根因：grok 的搜索结果是同级 div，用任何 selector 都会同时命中。
     // 修法：每个候选消息沿 DOM 向上 6 层查祖先的 class/id/aria-label/
     // data-* 是否含噪声词。命中 = 是搜索面板/工具结果/附件预览的子元素，
@@ -3026,7 +2931,7 @@
     }
 
     /**
-     * 11.1.3：调试工具，agent / 主人都能调。
+     * 11.1.3：调试工具，agent / 用户都能调。
      * 用法：await window.__lcxDebug()  →  返回"找到了几个 / 滤掉了几个"
      * 这样不用真扫描就能看到 selector 是不是对的、噪声过滤有没有生效。
      */
@@ -3097,7 +3002,7 @@
         else if (site.msgSelectors && site.msgSelectors.length) {
 
             // =====================================================
-            // 11.2.0（2026-09-10 主人实测"grok 还是不行" → chrome-bridge 抓真实 DOM）
+            // 11.2.0（2026-09-10 用户实测"grok 还是不行" → chrome-bridge 抓真实 DOM）
             //
             // 修 Bug①：**全部 selector 取并集**，
             // 不再"逐个试、首个命中就 return"。
@@ -3123,7 +3028,7 @@
             //   · 浏览器原生按**文档序**返回（= 对话真实顺序）
             //   · 同一元素被多个 selector 命中时自动去重，只出一次
             //
-            // 反面教材（chrome-bridge 在主人 Grok 页实测）：
+            // 反面教材（chrome-bridge 在用户 Grok 页实测）：
             // 逐个 selector 依次 push 得到的是「按 selector 分组」的顺序，
             // 6 条 user 会全部排在 6 条 assistant 前面，**对话顺序被打乱**。
             //   逐个 push : user user user user user user assi assi assi assi assi assi
@@ -4100,7 +4005,7 @@
 
         md += `# ${title}\n\n`;
 
-        // 2026-09-10 主人反馈：导出的文件单看抬头，看不出这是和哪个 AI
+        // 2026-09-10 用户反馈：导出的文件单看抬头，看不出这是和哪个 AI
         // 的对话（豆包那份只有"用户"）。这里补一行来源，一眼可辨。
         md +=
             `> 对话来源：${SITE.name} · ${location.hostname}\n`;
@@ -4634,10 +4539,10 @@
      * 起点锚点选取（11.0.2 重写）
      *
      * 默认**以屏幕为准**：取当前视口顶部往下第一条消息当起点。
-     * 主人是用滚轮滚屏的，鼠标光标常常随便停在屏幕上某个位置，
+     * 用户是用滚轮滚屏的，鼠标光标常常随便停在屏幕上某个位置，
      * 拿光标位置当起点必然不准 —— 所以点击产生的光标一律忽略。
      *
-     * 只有一种例外：主人**真的拖选了一段文字**（selection 非折叠），
+     * 只有一种例外：用户**真的拖选了一段文字**（selection 非折叠），
      * 这说明他明确在指某条消息，才用那条消息当锚点，并把它顶到视口顶部。
      */
     function pickStartAnchor(scroller) {
@@ -5011,7 +4916,7 @@
         }
 
         // 文件名后缀：AI 来源 id，让下载下来的对话单独拿出来也能一眼看出是哪个 AI。
-        // 主人 2026-09-10 提出"先看的是内容再看谁说的"——AI 标识放末尾，
+        // 用户 2026-09-10 提出"先看的是内容再看谁说的"——AI 标识放末尾，
         // 文件名整体阅读顺序是"对话标题_时间戳_扫描模式_AI源"，人类先关注内容再看来源。
         const aiTag = getSelectedAI();
         const base =
@@ -5203,7 +5108,7 @@
                 //     内容高出几千 px，绝对坐标整体下移，而 scrollTop
                 //     没变 —— 看到的内容就往回跑了好几屏，这就是 bug 根因。
                 //     折叠展开交给主循环每屏自己做，第一轮展开后再对齐。
-                //  b) 锚点优先取主人在页面里选中/点了光标的那条消息，
+                //  b) 锚点优先取用户在页面里选中/点了光标的那条消息，
                 //     并把它顶到视口顶部，起点精确落在这条消息上。
 
                 const anchor =
