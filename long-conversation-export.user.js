@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI长对话完整导出器
 // @namespace    long-conversation-export
-// @version      11.2.5
+// @version      11.2.6
 // @description  把任意 AI 长对话（ChatGPT/Grok/Claude/Gemini/DeepSeek/Kimi/豆包/通义/千问/元宝/智谱/华为小艺等）一次性抓全并导出：逐屏扫描 → 展开折叠 → 去重 → 补扫空洞 → 导出 Markdown / TXT / 扫描报告。支持从当前位置向下扫描。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -42,7 +42,7 @@
     // 基础参数
     // =========================================================
 
-    const VERSION = '11.2.5';
+    const VERSION = '11.2.6';
 
     const WAIT = 350;
 
