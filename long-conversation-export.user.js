@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         长对话完整导出器
+// @name         AI长对话完整导出器（通用版·支持华为小艺）
 // @namespace    long-conversation-export
-// @version      11.2.2
-// @description  把任意 AI 长对话（ChatGPT/Grok/Claude/Gemini/DeepSeek/Kimi/豆包/通义/千问/元宝/智谱等）一次性抓全并导出：逐屏扫描 → 展开折叠 → 去重 → 补扫空洞 → 导出 Markdown / TXT / 扫描报告。支持从当前位置向下扫描。
+// @version      11.2.5
+// @description  把任意 AI 长对话（ChatGPT/Grok/Claude/Gemini/DeepSeek/Kimi/豆包/通义/千问/元宝/智谱/华为小艺等）一次性抓全并导出：逐屏扫描 → 展开折叠 → 去重 → 补扫空洞 → 导出 Markdown / TXT / 扫描报告。支持从当前位置向下扫描。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @match        https://grok.com/*
@@ -25,6 +25,8 @@
 // @match        https://yuanbao.tencent.com/*
 // @match        https://chatglm.cn/*
 // @match        https://chat.z.ai/*
+// @match        https://xiaoyi.huawei.com/*
+// @match        https://www.xiaoyi.huawei.com/*
 // @grant        none
 // @run-at       document-idle
 // @author       WorkBuddy · 小台 (workspace-builder)
@@ -135,7 +137,7 @@
     //
     // 11.1.2（2026-09-10 主人追问"其他 AI 站点要重新来一遍？"）：
 
-    const VERSION = '11.2.1';
+    const VERSION = '11.2.3';
 
     const WAIT = 350;
 
@@ -540,6 +542,43 @@
             scroller: 'generic'
         },
         {
+            id: 'xiaoyi',
+            name: '华为小艺',
+            assistantName: '小艺',
+            // 11.2.2（主人 2026-09-25 要求 + chrome-bridge 实测真实 DOM）：
+            //   xiaoyi.huawei.com/chat —— 华为小艺网页版对话。
+            //   实测结构：消息列表 = .message-list > .message-list-wrapper，
+            //   每条消息 = 叶子节点：用户 .send-msg，小艺 .receive-msg（含 .answer-item）。
+            //   ⚠️ 切勿选 .qa-item：它是「用户提问+小艺回答」的外层包裹容器，
+            //      嵌套着 .send-msg，选它会把同一条消息抽两次且文本混在一起。
+            //   滚动容器 = .reverse（van-list 虚拟列表，scrollHeight 4147 vs 667 视口）。
+            //   角色按 className 判定：send-msg→user，answer-item/receive-msg→assistant。
+            //   标题 = 侧边栏“当前会话”项 .diglog-item.current-history 的文本（真实对话名）；
+            //   document.title 与顶部 input[placeholder="对话名称"] 的 value 恒为默认“小艺”，均不可用。
+            hosts: [
+                'xiaoyi.huawei.com',
+                'www.xiaoyi.huawei.com'
+            ],
+            msgSelectors: [
+                '.send-msg',
+                '.receive-msg'
+            ],
+            roleAttr: '',
+            roleMap: {},
+            roleRules: [
+                { re: /send-msg/, role: 'user' },
+                { re: /answer-item|receive-msg|qa-item/, role: 'assistant' }
+            ],
+            // 小艺对话名在侧边栏“当前会话”项里：.diglog-item.current-history
+            // 的文本（真实对话名）。注意：顶部 input[placeholder="对话名称"]
+            // 的 value 恒为默认“小艺”、document.title 也是“小艺”，都不能用。
+            titleSidebarCurrent: '.diglog-item.current-history',
+            titleSelectors: [],
+            scroller: 'generic',
+            scrollerSelector: '.reverse',
+            virtualList: true
+        },
+        {
             id: 'generic',
             name: 'AI 对话',
             assistantName: 'AI',
@@ -865,7 +904,7 @@
             .replace(/\s+/g, ' ')
             .replace(/[.\s]+$/, '')
             .trim()
-            .slice(0, 100) || defaultTitle();
+            .slice(0, 10) || defaultTitle();
     }
 
     /**
@@ -925,11 +964,11 @@
             d.getFullYear(),
             p(d.getMonth() + 1),
             p(d.getDate())
-        ].join('-') + '_' + [
+        ].join('') + '_' + [
             p(d.getHours()),
             p(d.getMinutes()),
             p(d.getSeconds())
-        ].join('-');
+        ].join('');
     }
 
     // =========================================================
@@ -1227,7 +1266,7 @@
         // B.5 站点专用标题选择器（通用版新增）
         // -----------------------------------------------------
         for (
-            const sel of SITE.titleSelectors
+            const sel of (SITE.titleSelectors || [])
         ) {
 
             document
@@ -1242,6 +1281,53 @@
                         65
                     );
                 });
+        }
+
+        // -----------------------------------------------------
+        // B.6 站点专用标题输入框（11.2.2 小艺：对话名存在顶部
+        //     input[placeholder="对话名称"] 的 value 里，页面
+        //     没有 h1、侧边栏也不一定有历史条目）
+        // -----------------------------------------------------
+        if (SITE.titleInputSelector) {
+            const ti =
+                document.querySelector(
+                    SITE.titleInputSelector
+                );
+            if (ti) {
+                const v =
+                    (ti.value || '').trim();
+                if (v) {
+                    push(
+                        v,
+                        '标题输入框 ' +
+                        SITE.name,
+                        90
+                    );
+                }
+            }
+        }
+
+        // -----------------------------------------------------
+        // B.7 站点专用“当前会话”侧边栏项（11.2.2 小艺修复）
+        //   小艺：当前会话在侧边栏以 .diglog-item.current-history
+        //   标记，其文本即真实对话名。页面无 h1、输入框 value 与
+        //   document.title 都是默认“小艺”（被 isBad 过滤），所以
+        //   必须靠侧边栏当前项拿名。评分最高(95)，压过所有兜底。
+        // -----------------------------------------------------
+        if (SITE.titleSidebarCurrent) {
+            const cur =
+                document.querySelector(
+                    SITE.titleSidebarCurrent
+                );
+            if (cur) {
+                push(
+                    cur.innerText ||
+                    cur.textContent,
+                    '当前会话侧栏 ' +
+                    SITE.name,
+                    95
+                );
+            }
         }
 
         // C. 页面标题兜底
@@ -1545,6 +1631,47 @@
     // 到真正顶部
     // =========================================================
 
+    // 布局无关：以"真实顶部 scrollTop"为目标。
+    // 普通容器 top=0；column-reverse 反向容器 top 为负值 = -(scrollHeight-clientHeight)。
+    // 每次实时计算，兼容 van-list 在顶部异步加载更早历史导致 scrollHeight 增长。
+    function realTopOf(scroller) {
+        const fd =
+            getComputedStyle(scroller).flexDirection;
+        const ext =
+            Math.max(
+                0,
+                scroller.scrollHeight -
+                scroller.clientHeight
+            );
+        return fd === 'column-reverse' ? -ext : 0;
+    }
+
+    // 布局无关：返回滚动容器的合法 scrollTop 区间 [top, bottom]。
+    // 普通容器：[0, maxScroll]；column-reverse 反向容器：[−maxScroll, 0]。
+    // 用这个代替散落的 Math.max(0, …)，避免把反向布局的负值顶部钳成 0（=底部），
+    // 那样会让小艺这类 column-reverse 容器永远到不了真实顶部。
+    function scrollRange(scroller) {
+        const ext = Math.max(
+            0,
+            scroller.scrollHeight -
+            scroller.clientHeight
+        );
+        const reverse =
+            getComputedStyle(scroller).flexDirection ===
+            'column-reverse';
+        return reverse
+            ? { top: -ext, bottom: 0 }
+            : { top: 0, bottom: ext };
+    }
+
+    function clampScroll(scroller, val) {
+        const r = scrollRange(scroller);
+        return Math.max(
+            r.top,
+            Math.min(r.bottom, val)
+        );
+    }
+
     async function goToRealTop(input) {
 
         let scroller =
@@ -1552,15 +1679,16 @@
 
         if (!scroller) return false;
 
-        for (let i = 1; i <= 10; i++) {
+        for (let i = 0; i < 200; i++) {
 
             if (abortRequested) break;
 
-            scroller.scrollTop = 0;
+            const tv = realTopOf(scroller);
+            scroller.scrollTop = tv;
 
             await sleep(WAIT);
 
-            if (scroller.scrollTop <= 1) {
+            if (Math.abs(scroller.scrollTop - tv) <= 2) {
 
                 let stable = 0;
 
@@ -1572,15 +1700,17 @@
 
                     if (abortRequested) break;
 
-                    scroller.scrollTop = 0;
+                    const tv2 = realTopOf(scroller);
+                    scroller.scrollTop = tv2;
 
                     await sleep(500);
 
-                    if (scroller.scrollTop <= 1) {
-                        stable++;
-                    } else {
-                        stable = 0;
-                    }
+                        if (Math.abs(scroller.scrollTop - tv2) <= 2) {
+                            stable++;
+                        } else {
+                            stable = 0;
+                            break;
+                        }
                 }
 
                 if (
@@ -1592,7 +1722,8 @@
             }
         }
 
-        return scroller.scrollTop <= 2;
+        scroller.scrollTop = realTopOf(scroller);
+        return Math.abs(scroller.scrollTop - realTopOf(scroller)) <= 2;
     }
 
     // =========================================================
@@ -2268,10 +2399,13 @@
             scroller = pickScroller();
         } catch (_) {}
 
+        // 布局无关：用「距真实顶部的偏移」展示，column-reverse 的负
+        // scrollTop 归一化成正值，避免界面出现负数把主人搞糊涂。
         const y =
             scroller
                 ? Math.round(
-                    scroller.scrollTop
+                    scroller.scrollTop -
+                    realTopOf(scroller)
                 )
                 : null;
 
@@ -3876,7 +4010,12 @@
                 scroller.clientHeight
             );
 
-        scroller.scrollTop = max;
+        // 布局无关：column-reverse 反向容器底部 scrollTop=0，
+        // 不能设正数 max（会被钳成 0，但确认判定按 max 比对就永远失败）。
+        const r = scrollRange(scroller);
+        const botVal = r.bottom;
+
+        scroller.scrollTop = botVal;
 
         await sleep(WAIT);
 
@@ -3885,21 +4024,17 @@
 
         if (
             Math.abs(
-                after - max
+                after - botVal
             ) <= 3
         ) {
 
-            scroller.scrollTop = max;
+            scroller.scrollTop = botVal;
 
             await sleep(600);
 
             return (
                 Math.abs(
-                    scroller.scrollTop -
-                    (
-                        scroller.scrollHeight -
-                        scroller.clientHeight
-                    )
+                    scroller.scrollTop - botVal
                 ) <= 3
             );
         }
@@ -4385,9 +4520,12 @@
 
         // 从指定位置开始时，起点以上的区域不属于本次任务，
         // 不要回头去补（否则又把上面的新闻简报抓进来了）
+        // 布局无关：用 clampScroll 而非 Math.max(0,…)，
+        // 否则 column-reverse 的负 scrollTop 会被钳成 0（=底部），
+        // 导致起点之上的补扫被整段跳过。
         const floor =
             typeof minY === 'number'
-                ? Math.max(0, minY)
+                ? clampScroll(scroller, minY)
                 : 0;
 
         for (
@@ -4565,8 +4703,8 @@
                                 p.getBoundingClientRect();
 
                             scroller.scrollTop =
-                                Math.max(
-                                    0,
+                                clampScroll(
+                                    scroller,
                                     Math.round(
                                         scroller.scrollTop +
                                         r.top -
@@ -4701,9 +4839,11 @@
             return false;
         }
 
+        // 布局无关：clampScroll 代替 Math.max(0,…)，
+        // 否则 column-reverse 负区间会被钳成 0（=底部）而跳错位置。
         scroller.scrollTop =
-            Math.max(
-                0,
+            clampScroll(
+                scroller,
                 Math.round(
                     scroller.scrollTop +
                     best.delta
@@ -5083,8 +5223,11 @@
                 info.anchor = anchor;
 
                 // 补扫下限给半屏冗余，保证锚点那条消息本身能被补到
-                startMinY = Math.max(
-                    0,
+                // 布局无关：clampScroll 代替 Math.max(0,…)，
+                // column-reverse 当前 scrollTop 为负，起点下限也是负的，
+                // 不能钳成 0。
+                startMinY = clampScroll(
+                    scroller,
                     startY -
                     Math.round(
                         (
@@ -5152,12 +5295,15 @@
 
                 throwIfAborted();
 
-                scroller.scrollTop = 0;
+                scroller.scrollTop = realTopOf(scroller);
 
                 await sleep(500);
 
                 if (
-                    scroller.scrollTop > 2
+                    Math.abs(
+                        scroller.scrollTop -
+                        realTopOf(scroller)
+                    ) > 3
                 ) {
 
                     const retry =
@@ -5273,8 +5419,8 @@
                                 );
 
                             startMinY =
-                                Math.max(
-                                    0,
+                                clampScroll(
+                                    scroller,
                                     info.startY -
                                     Math.round(
                                         (
@@ -5299,16 +5445,25 @@
                         scroller.clientHeight
                     );
 
+                // 布局无关：column-reverse 反向容器 scrollTop 为负，
+                // 顶部 = -maxScroll，底部 = 0；普通容器顶部=0，底部=maxScroll。
+                const reverseScroll =
+                    getComputedStyle(scroller).flexDirection === 'column-reverse';
+                const topVal =
+                    reverseScroll ? -maxScroll : 0;
+                const botVal =
+                    reverseScroll ? 0 : maxScroll;
+
                 const currentTop =
                     scroller.scrollTop;
 
                 const percent =
-                    maxScroll > 0
+                    botVal > topVal
                         ? Math.min(
                             100,
                             Math.round(
-                                currentTop /
-                                maxScroll *
+                                (currentTop - topVal) /
+                                (botVal - topVal) *
                                 100
                             )
                         )
@@ -5323,7 +5478,7 @@
 
                 if (
                     currentTop >=
-                    maxScroll - 3
+                    botVal - 3
                 ) {
 
                     unchangedBottomCount++;
@@ -5352,7 +5507,7 @@
 
                 const target =
                     Math.min(
-                        maxScroll,
+                        botVal,
                         currentTop + step
                     );
 
@@ -5415,7 +5570,7 @@
 
                         if (
                             scroller.scrollTop >=
-                            latestMax - 3
+                            botVal - 3
                         ) {
 
                             unchangedBottomCount++;
